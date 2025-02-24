@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  devcontainer:
+    container_name: a1-devcontainer
+    build:
+      dockerfile: Dockerfile
+      target: devcontainer
+    environment:
+      OPENAI_API_KEY: sk-fdjJJUSK0Xuz0j1Xexm5WQ
+      OPENAI_BASE_URL: https://api.ai.it.cornell.edu/
+      TZ: America/New_York
+    volumes:
+      - "$HOME/.aws:/root/.aws"
+      - ".:/workspace"
+    ports:
+      - "8501:8501"
