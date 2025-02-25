@@ -76,10 +76,6 @@ def summarize_text(text, openai_api_key):
     return response.choices[0].message.content
 
 def build_vectorstore_for_text(text, openai_api_key):
-    """
-    Build a vector store for the text using LangChain.
-    We'll chunk the text. If it's short, this is still fine.
-    """
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = text_splitter.split_text(text)
     if not chunks:
