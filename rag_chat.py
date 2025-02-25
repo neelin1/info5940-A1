@@ -10,8 +10,8 @@ from langchain.vectorstores import FAISS
 
 # Threshold for including
 # MAX_INLINE_LENGTH = 2000
-NUM_CHUNKS=3
-MAX_CHARACTERS_SUMMARY = 6000
+NUM_CHUNKS=3 # Number of chunks retrieved per query
+MAX_CHARACTERS_SUMMARY = 6000 # Max characters in initial summarization
 client = OpenAI(api_key=environ["OPENAI_API_KEY"])
 
 st.title("Chat with Files")
@@ -26,6 +26,7 @@ question = st.chat_input(
     disabled=not uploaded_files,
 )
 
+# Session State Variables
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "Ask a question about the uploaded documents"}]
 if "files_data" not in st.session_state:
@@ -44,6 +45,15 @@ if "files_data" not in st.session_state:
 
 
 def get_file_text(file):
+    """
+    Extracts text from a given file (TXT, MD, or PDF).
+
+    Args:
+        file (UploadedFile): The uploaded file from Streamlit.
+
+    Returns:
+        str: Extracted text content from the file.
+    """
     if file.name.lower().endswith(".pdf"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(file.read())
@@ -57,7 +67,17 @@ def get_file_text(file):
     else:
         return file.read().decode("utf-8")
 
-def summarize_text(text, openai_api_key):
+def summarize_text(text):
+    """
+    Generates a summary for the given text using GPT-4o-mini.
+
+    Args:
+        text (str): The full text content to summarize.
+        openai_api_key (str): The OpenAI API key for authentication.
+
+    Returns:
+        str: A concise summary of the given text.
+    """
     truncated_text = text[:MAX_CHARACTERS_SUMMARY]  
 
     system = "You are an expert summarizer. Summarize the following text in one long paragraph. Please omit needless words. Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all their sentence short, or that they avoid all detail and treat their subject only in outline, but that they make every word tell."
@@ -76,6 +96,16 @@ def summarize_text(text, openai_api_key):
     return response.choices[0].message.content
 
 def build_vectorstore_for_text(text, openai_api_key):
+    """
+    Splits the text into chunks, embeds them, and stores them in a FAISS vector store.
+
+    Args:
+        text (str): The full text content to be chunked and embedded.
+        openai_api_key (str): The OpenAI API key for generating embeddings.
+
+    Returns:
+        FAISS or None: A FAISS vector store containing text embeddings or None if no chunks exist.
+    """
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = text_splitter.split_text(text)
     if not chunks:
@@ -89,11 +119,20 @@ def build_vectorstore_for_text(text, openai_api_key):
     
 
 def process_files(files):
+    """
+    Processes the uploaded files: extracts text, generates summaries, and builds vector stores.
+
+    Args:
+        files (list): A list of uploaded files.
+
+    Returns:
+        None: Updates session state with processed file data.
+    """
     st.session_state["files_data"].clear()
 
     for f in files:
         raw_text = get_file_text(f)
-        summary = summarize_text(raw_text, environ["OPENAI_API_KEY"])
+        summary = summarize_text(raw_text)
         vectorstore = build_vectorstore_for_text(raw_text, environ["OPENAI_API_KEY"])
 
         st.session_state["files_data"].append({
