@@ -14,11 +14,15 @@ MAX_CHARACTERS_SUMMARY = 6000
 client = OpenAI(api_key=environ["OPENAI_API_KEY"])
 
 st.title("Chat with Files")
-uploaded_file = st.file_uploader("Upload an article", type=("txt", "md", "pdf"), accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Upload articles",
+    type=("txt", "md", "pdf"),
+    accept_multiple_files=True
+)
 
 question = st.chat_input(
     "Ask a question about the uploaded documents",
-    disabled=not uploaded_file,
+    disabled=not uploaded_files,
 )
 
 if "messages" not in st.session_state:
@@ -29,8 +33,6 @@ if "files_data" not in st.session_state:
 #     st.session_state["vectorstore"] = None
 # if "full_text" not in st.session_state:
 #     st.session_state["full_text"] = ""
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
 
 # # Fetch the available models
 # models = client.models.list()
@@ -59,69 +61,88 @@ def summarize_text(text, openai_api_key):
 
     system = "You are an expert summarizer. Summarize the following text in one long paragraph. Please omit needless words. Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all their sentence short, or that they avoid all detail and treat their subject only in outline, but that they make every word tell."
 
-    if (text.length > MAX_CHARACTERS_SUMMARY):
-        system += f"You will see at most {MAX_CHARACTERS_SUMMARY} characters, so try to extrapolate outward about missing content (there might be a table of contents or some other useful feature)."
+    if (len(text) > MAX_CHARACTERS_SUMMARY):
+        system += f"\nYou will see at most {MAX_CHARACTERS_SUMMARY} characters, so try to extrapolate outward about missing content (there might be a table of contents or some other useful feature)."
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="openai.gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are an expert summarizer. Summarize the following text in one long paragraph. Please omit needless words. Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all their sentence short, or that they avoid all detail and treat their subject only in outline, but that they make every word tell. You will see at most 6000 characters, so try to extrapolate outward about missing content (there might be a table of contents or some other useful feature)."},
+            {"role": "system", "content": system},
             {"role": "user", "content": truncated_text}
         ]
     )
 
     return response.choices[0].message.content
+
+def build_vectorstore_for_text(text, openai_api_key):
+    """
+    Build a vector store for the text using LangChain.
+    We'll chunk the text. If it's short, this is still fine.
+    """
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = text_splitter.split_text(text)
+    if not chunks:
+        return None
     
-def process_file(text):
-    # chunk if greater than 2000 characters, otherwise keep as full text
-    if len(text) <= MAX_INLINE_LENGTH:
-        print("PROCESSING: Text")
-        st.session_state["vectorstore"] = None
-        st.session_state["full_text"] = text
-    else:
-        print("PROCESSING: Chunks")
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        chunks = text_splitter.split_text(text)
-        
-        embeddings = OpenAIEmbeddings(
-            model="openai.text-embedding-3-large",
-            api_key=environ["OPENAI_API_KEY"]
-        )
+    embeddings = OpenAIEmbeddings(
+        model="openai.text-embedding-3-large",
+        api_key=environ["OPENAI_API_KEY"]
+    )
+    return FAISS.from_texts(chunks, embeddings)
+    
 
-        st.session_state["vectorstore"] = FAISS.from_texts(chunks, embeddings)
-        st.session_state["full_text"] = ""
+def process_files(files):
+    st.session_state["files_data"].clear()
 
-if uploaded_file:
-    text = get_file_text(uploaded_file)
-    process_file(text) 
+    for f in files:
+        raw_text = get_file_text(f)
+        summary = summarize_text(raw_text, environ["OPENAI_API_KEY"])
+        vectorstore = build_vectorstore_for_text(raw_text, environ["OPENAI_API_KEY"])
 
-if question and uploaded_file:  
-    # client = OpenAI(api_key=environ['OPENAI_API_KEY'])
+        st.session_state["files_data"].append({
+            "filename": f.name,
+            "summary": summary,
+            "vectorstore": vectorstore
+        })
 
-    # Append the user's question to the messages
+for msg in st.session_state.messages:
+    st.chat_message(msg["role"]).write(msg["content"])
+
+if uploaded_files:
+    process_files(uploaded_files)
+
+if question and uploaded_files:
     st.session_state.messages.append({"role": "user", "content": question})
     st.chat_message("user").write(question)
 
-    if st.session_state["vectorstore"]:
-        docs = st.session_state["vectorstore"].similarity_search(question, k=2)
-        retrieved_text = "\n\n".join([d.page_content for d in docs])
-        system_content = f"Relevant chunks:\n{retrieved_text}\n\nAnswer the user query using the chunks above."
-    else:
-        system_content = f"Here's the file content:\n{st.session_state['full_text']}"
-    print ("SYSTEM CONTENT: ", system_content)
+    system_prompt = "The user has uploaded the following files.\n"
+    relevant_chunks_text = ""
+
+    for file_info in st.session_state["files_data"]:
+        filename = file_info["filename"]
+        summary = file_info["summary"]
+        vectorstore = file_info["vectorstore"]
+
+        system_prompt += f"\n# File Name: {filename}\nSummary: {summary}\n"
+
+        if vectorstore:
+            docs = vectorstore.similarity_search(question, k=3)
+            rag_text = "\n".join([d.page_content for d in docs])
+            relevant_chunks_text += f"\n## RAG for {filename}\n{rag_text}\n"
+
+    system_prompt += f"\nHere are the relevant chunks from the documents:\n{relevant_chunks_text}\n"
+
+    client = OpenAI(api_key=environ["OPENAI_API_KEY"])
 
     with st.chat_message("assistant"):
         stream = client.chat.completions.create(
-            model="openai.gpt-4o",  # Change this to a valid model name
+            model="openai.gpt-4o",
             messages=[
-                {"role": "system", "content": system_content},
+                {"role": "system", "content": system_prompt},
                 *st.session_state.messages
             ],
             stream=True
         )
         response = st.write_stream(stream)
 
-    # Append the assistant's response to the messages
     st.session_state.messages.append({"role": "assistant", "content": response})
-
-

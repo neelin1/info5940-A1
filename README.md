@@ -10,3 +10,5 @@ Make sure you have the VSCode extension `Dev Containers` and `cmd+shift+p` and r
 To make sure this is working, type `echo $OPENAI_API_KEY` and make 
 
 Run `streamlit run rag_chat.py --server.port 8501 --server.address 0.0.0.0` and open `http://0.0.0.0:8501/` in a broswer to see the application.
+
+# Overview of Implementation
