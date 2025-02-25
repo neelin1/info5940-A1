@@ -9,7 +9,8 @@ from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 
 # Threshold for including
-MAX_INLINE_LENGTH = 2000
+# MAX_INLINE_LENGTH = 2000
+NUM_CHUNKS=3
 MAX_CHARACTERS_SUMMARY = 6000
 client = OpenAI(api_key=environ["OPENAI_API_KEY"])
 
@@ -126,11 +127,13 @@ if question and uploaded_files:
         system_prompt += f"\n# File Name: {filename}\nSummary: {summary}\n"
 
         if vectorstore:
-            docs = vectorstore.similarity_search(question, k=3)
-            rag_text = "\n".join([d.page_content for d in docs])
+            docs = vectorstore.similarity_search(question, k=NUM_CHUNKS)
+            rag_text = "\n---\n\n".join([d.page_content for d in docs])
             relevant_chunks_text += f"\n## RAG for {filename}\n{rag_text}\n"
 
     system_prompt += f"\nHere are the relevant chunks from the documents:\n{relevant_chunks_text}\n"
+
+    print(system_prompt)
 
     client = OpenAI(api_key=environ["OPENAI_API_KEY"])
 
